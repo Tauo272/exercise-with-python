@@ -1,39 +1,83 @@
+import mysql.connector
 import requests
 from bs4 import BeautifulSoup
-import mysql.connector
 
 dataBase = mysql.connector.connect(
     host="localhost",
     user="Tulio",
     password="Flta,26109",
-    database="lawyers"
+    database="lawyers",
+    charset="utf8mb4"
 )
 
 cursor = dataBase.cursor()
-sqlOrder = "insert into notClients (Name, IdMatricula, University, Direction, City, PostalCode, MobilePhone, NotMobilePhone, Gmail, HaveWeb) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
 
-for i in range(1):
+for page in range(352):
 
-    url =  requests.get(f"https://colegioabogadostuc.org.ar/herramientas/padron/?pag={i}")
-    urlParsed = BeautifulSoup(url.text, "html.parser")
+    try:
 
-    for j in urlParsed.find_all("div", "vent-popu"):
+        url = requests.get(f"https://colegioabogadostuc.org.ar/herramientas/padron/?utm_source=chatgpt.com&pag={page}")
+        beautyUrl = BeautifulSoup(url.text, "html.parser")
+        urlParsed = beautyUrl.find_all("div", "vent-popu")
 
-        data = j.text.replace("\n", "")
-        data = data.replace("close", "")
-        data = data.replace("Padrón de Abogados", "")
-        data = data.replace("\xa0·\xa0", "")
-        data = data.replace("E-mail: ", "|")
-        data = data.replace("Móvil: ", "|")
-        data = data.replace("Teléfonos/Fax: ", "|")
-        data = data.replace("Dirección: ", "|")
-        data = data.replace("Matrícula: ", "|")
-        data = data.replace("Sitio Web: ", "|")
-        data = data.replace("Localidad: ", "|")
-        data = data.replace("Universidad: ", "|")
-        data = data.replace(" |", "|")
-        data = data.split("|")
-        cursor.execute(sqlOrder, tuple(data))
-        cursor.commit()
-        
+        for person in range(len(urlParsed)):
+
+            personParsed = urlParsed[person].find("div", "vent").text
+            personParsed = personParsed.replace("\n\nclose\nPadrón de Abogados", "").replace(" \xa0·\xa0 ", "\n").replace(" Sitio", "").strip().split("\n")
+            jsonObject = {}
+            for separate in personParsed:
+
+                if separate in personParsed[0]:
+                    jsonObject["name"]=separate
+
+                elif separate in personParsed[-1]:
+                    separate = separate.split(":")
+                    passwordList = []
+                    contentList = []
+
+                    for i in separate:
+
+                        i = i.replace(" ", "|").split("|")
+
+                        if i[-1] in separate[-1]:
+                            contentList.append(i[-1])
+                            passwordList.append(i[0])
+                            passwordList.pop(-1)
+                        
+                        else:
+                            try:
+                                passwordList.append(i[-1])
+                                contentList.append(i[-2])
+                            except:
+                                continue
+
+                    for passwordDictionary in range(len(passwordList)):
+                        for contentDictionary in range(len(contentList)):
+                            if passwordDictionary == contentDictionary:
+                                jsonObject[passwordList[passwordDictionary]]=contentList[contentDictionary]
+
+                else:
+                    separate = separate.split(":")
+                    jsonObject[f"{separate[0]}"]=separate[1]
+
+            values = ", ".join(["%s"] * len(jsonObject))
+            colums = ", ".join(f'`{i}`' for i in jsonObject.keys())
+            sqlOrder = f"insert into notclients ({colums}) values ({values})"
+
+            try:
+                cursor.execute(sqlOrder, tuple(jsonObject[i] for i in jsonObject))
+                dataBase.commit()
+            except Exception as e:
+                print(f"error: {e}")
+                continue
+        url.close()
+
+    except requests.exceptions.RequestException as e:
+        print(f"error: {e}")
+        continue
+    except requests.exceptions.Timeout as e:
+        print(f"error: {e}")
+        continue
+
 cursor.close()
+dataBase.close()
